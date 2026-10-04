@@ -127,16 +127,21 @@ def calculate_metrics(daily_returns):
 def plot_and_report(daily_returns):
     metrics, cum_returns = calculate_metrics(daily_returns)
     
-    # 获取沪深300基准
+    # ================= 1. 获取沪深300基准并彻底去重 =================
     hs300 = pro.index_daily(ts_code='000300.SH',
                             start_date=daily_returns.index[0].strftime('%Y%m%d'),
                             end_date=daily_returns.index[-1].strftime('%Y%m%d'))
     hs300.set_index('trade_date', inplace=True)
     hs300.index = pd.to_datetime(hs300.index)
     hs300 = hs300.sort_index()
+    
+    # 核心修复：强行剔除 Tushare 可能返回的重复日期，防止 pd.DataFrame 崩溃
+    hs300 = hs300[~hs300.index.duplicated(keep='first')]
+    
     hs300_returns = hs300['close'].pct_change().fillna(0)
     hs300_cum = (1 + hs300_returns).cumprod()
 
+    # 打印终端报告
     print("\n" + "=" * 40)
     print("      基本面量化策略回测报告")
     print("      (高 ROE + 高股息轮动)")
@@ -160,18 +165,18 @@ def plot_and_report(daily_returns):
     plt.savefig("data/backtest_plot.png", dpi=150, bbox_inches='tight')
     plt.close()
 
-    # ========== 核心修复：输出合并后的嵌套 JSON，供 Streamlit 读取 ==========
-    # 1. 确保数据对齐
+    # ================= 2. 输出 Streamlit 适用的嵌套 JSON =================
+    # 两边都已去重，此时 pd.DataFrame 绝对不会再报错
     aligned_data = pd.DataFrame({
         'strategy': cum_returns,
         'benchmark': hs300_cum
     }).ffill().dropna()
 
-    # 2. 计算用于前端水下曲线展示的动态回撤
+    # 计算用于前端水下曲线展示的动态回撤
     running_max = aligned_data['strategy'].cummax()
     drawdown = (aligned_data['strategy'] - running_max) / running_max * 100
 
-    # 3. 构建包含 metrics 键的极简数据结构
+    # 构建包含 metrics 键的极简数据结构
     output = {
         "metrics": {
             "total_return": round(metrics['Total Return'] * 100, 2),
@@ -187,11 +192,11 @@ def plot_and_report(daily_returns):
         }
     }
 
-    # 4. 写入单一 JSON 文件
+    # 写入单一 JSON 文件
     with open("data/backtest_result.json", 'w', encoding='utf-8') as f:
         json.dump(output, f, ensure_ascii=False)
 
-    print("✅ 回测结果已保存至 data/backtest_result.json (已修复 metrics 键值格式)")
+    print("✅ 回测结果已保存至 data/backtest_result.json")
     print("✅ 净值曲线图片保存至 data/backtest_plot.png")
 
 if __name__ == '__main__':
