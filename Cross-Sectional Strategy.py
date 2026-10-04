@@ -120,7 +120,7 @@ def calculate_metrics(daily_returns):
         "Total Return": total_return,
         "Annualized Return": annual_return,
         "Max Drawdown": max_drawdown,
-        "Sharpe Ratio": sharpe
+        "Sharpe Ratio": sharpe_ratio
     }, cum_returns
 
 def plot_and_report(daily_returns):
