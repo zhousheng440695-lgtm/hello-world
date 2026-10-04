@@ -126,6 +126,7 @@ def calculate_metrics(daily_returns):
 
 def plot_and_report(daily_returns):
     metrics, cum_returns = calculate_metrics(daily_returns)
+    
     # 获取沪深300基准
     hs300 = pro.index_daily(ts_code='000300.SH',
                             start_date=daily_returns.index[0].strftime('%Y%m%d'),
@@ -147,7 +148,7 @@ def plot_and_report(daily_returns):
     print(f"夏普比率:     {metrics['Sharpe Ratio']:.2f}")
     print("=" * 40)
 
-    # 绘图保存图片文件（不再plt.show()）
+    # 绘图保存图片文件
     plt.figure(figsize=(12, 6))
     plt.plot(cum_returns.index, cum_returns, label='Strategy (High ROE + Div)', color='red')
     plt.plot(hs300_cum.index, hs300_cum, label='HS300 Benchmark', color='blue', alpha=0.7)
@@ -159,17 +160,38 @@ def plot_and_report(daily_returns):
     plt.savefig("data/backtest_plot.png", dpi=150, bbox_inches='tight')
     plt.close()
 
-    # ==========重点：输出json文件，给git commit捕获==========
-    out_df = pd.DataFrame({
-        "strategy_cum": cum_returns,
-        "hs300_cum": hs300_cum
-    })
-    out_df.to_json("data/backtest_result.json", force_ascii=False)
+    # ========== 核心修复：输出合并后的嵌套 JSON，供 Streamlit 读取 ==========
+    # 1. 确保数据对齐
+    aligned_data = pd.DataFrame({
+        'strategy': cum_returns,
+        'benchmark': hs300_cum
+    }).ffill().dropna()
 
-    # 指标单独保存
-    pd.Series(metrics).to_json("data/backtest_metrics.json", force_ascii=False)
+    # 2. 计算用于前端水下曲线展示的动态回撤
+    running_max = aligned_data['strategy'].cummax()
+    drawdown = (aligned_data['strategy'] - running_max) / running_max * 100
 
-    print("✅ 回测结果已保存至 data/backtest_result.json 和 backtest_metrics.json")
+    # 3. 构建包含 metrics 键的极简数据结构
+    output = {
+        "metrics": {
+            "total_return": round(metrics['Total Return'] * 100, 2),
+            "annual_return": round(metrics['Annualized Return'] * 100, 2),
+            "max_drawdown": round(metrics['Max Drawdown'] * 100, 2),
+            "sharpe_ratio": round(metrics['Sharpe Ratio'], 2)
+        },
+        "chart_data": {
+            "dates": aligned_data.index.strftime('%Y-%m-%d').tolist(),
+            "strategy": aligned_data['strategy'].round(4).tolist(),
+            "benchmark": aligned_data['benchmark'].round(4).tolist(),
+            "drawdown": drawdown.round(2).tolist()
+        }
+    }
+
+    # 4. 写入单一 JSON 文件
+    with open("data/backtest_result.json", 'w', encoding='utf-8') as f:
+        json.dump(output, f, ensure_ascii=False)
+
+    print("✅ 回测结果已保存至 data/backtest_result.json (已修复 metrics 键值格式)")
     print("✅ 净值曲线图片保存至 data/backtest_plot.png")
 
 if __name__ == '__main__':
