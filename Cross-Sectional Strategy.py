@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 import os
-
+import json
 # ========================== 修复：matplotlib 无界面后端（GitHub Linux环境必须） ==========================
 plt.switch_backend('Agg')
 
