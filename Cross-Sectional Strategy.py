@@ -99,6 +99,7 @@ def backtest():
         portfolio_daily_returns = pd.concat([portfolio_daily_returns, port_return])
     portfolio_daily_returns.index = pd.to_datetime(portfolio_daily_returns.index)
     portfolio_daily_returns.sort_index(inplace=True)
+    portfolio_daily_returns = portfolio_daily_returns[~portfolio_daily_returns.index.duplicated(keep='first')]
     return portfolio_daily_returns
 
 # ==========================================
