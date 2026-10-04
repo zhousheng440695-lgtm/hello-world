@@ -20,7 +20,7 @@ st.markdown("基于 `Tushare` 数据源的核心财务因子轮动策略 (高 RO
 # 2. 数据读取与解析
 # ==========================================
 @st.cache_data
-def load_data(file_path="backtest_result.json"):
+def load_data(file_path="data/backtest_result.json"):
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
