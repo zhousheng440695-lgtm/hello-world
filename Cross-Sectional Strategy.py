@@ -41,30 +41,39 @@ def get_quarterly_rebalance_dates(start_year, end_year):
 
 def get_prp_factor_fast(candidate_codes, trade_date):
     """
-    极速版 PRP 因子计算：通过拉取历史 25 个月的月末截面数据，
-    避免逐个股票请求 API 导致的超时限流。
+    终极版 PRP 因子计算：按候选股票池进行分块请求，结合自动重试机制。
+    单季度只需 3 次轻量级 API 请求，彻底解决海外 GitHub Actions 网络超时问题。
     """
-    print("    -> 正在批量拉取过往 25 个月截面数据计算 PRP...")
+    print(f"    -> 正在批量拉取 {len(candidate_codes)} 只候选股的 25 个月历史数据计算 PRP...")
     end_dt = pd.to_datetime(trade_date)
     start_dt = end_dt - pd.DateOffset(months=25)
+    start_str = start_dt.strftime('%Y%m%d')
+
+    all_monthly_dfs = []
+    chunk_size = 50  # 每次请求 50 只股票，完美避开 Tushare 单次请求上限
     
-    # 获取这 25 个月的月末交易日
-    cal = pro.trade_cal(exchange='SSE', start_date=start_dt.strftime('%Y%m%d'), end_date=trade_date, is_open='1')
-    cal['year_month'] = cal['cal_date'].str[:6]
-    month_ends = cal.groupby('year_month').last()['cal_date'].tolist()
+    for i in range(0, len(candidate_codes), chunk_size):
+        chunk_codes = ",".join(candidate_codes[i:i + chunk_size])
+        
+        # 针对跨国网络的 3 次容错重试机制
+        retry_count = 3
+        while retry_count > 0:
+            try:
+                # 直接通过 ts_code 列表拉取时间段数据
+                df = pro.monthly(ts_code=chunk_codes, start_date=start_str, end_date=trade_date, fields='ts_code,trade_date,pct_chg')
+                all_monthly_dfs.append(df)
+                break  # 成功则跳出重试循环
+            except Exception as e:
+                retry_count -= 1
+                print(f"       [网络波动] 数据拉取失败，正在重试... 剩余重试次数: {retry_count}")
+                time.sleep(2)  # 遇到报错休眠 2 秒再试
+        
+        time.sleep(0.4)  # 正常的 Tushare 接口频控
 
-    month_dfs = []
-    for me in month_ends:
-        try:
-            df = pro.monthly(trade_date=me, fields='ts_code,trade_date,pct_chg')
-            # 仅保留我们关心的候选股票以节省内存
-            df = df[df['ts_code'].isin(candidate_codes)]
-            month_dfs.append(df)
-        except Exception:
-            pass
-        time.sleep(0.3)
+    if not all_monthly_dfs:
+        return pd.Series(dtype=float)
 
-    all_monthly = pd.concat(month_dfs, ignore_index=True)
+    all_monthly = pd.concat(all_monthly_dfs, ignore_index=True)
 
     prp_dict = {}
     for code, group in all_monthly.groupby('ts_code'):
@@ -81,7 +90,7 @@ def select_stocks(trade_date):
     """在指定日期进行选股：6个月动量 + 剔除高 PRP"""
     print(f"正在计算 {trade_date} 的选股名单 (季度动量 + PRP风控)...")
     
-    # 1. 极速动量计算：获取当前截面与 120 个交易日前的截面对比
+    # 1. 极速动量计算
     cal = pro.trade_cal(exchange='SSE', start_date='20100101', end_date=trade_date, is_open='1')
     past_date = cal.iloc[-MOMENTUM_WINDOW - 1]['cal_date'] 
     
@@ -94,31 +103,28 @@ def select_stocks(trade_date):
     df = pd.merge(df_curr, df_past, on='ts_code')
     df['momentum'] = (df['close'] / df['past_close']) - 1
     
-    # 过滤停牌和 ST 股
     status = pro.bak_basic(trade_date=trade_date, fields='ts_code,name,list_status')
     if status.empty:
         status = pro.stock_basic(exchange='', list_status='L', fields='ts_code,name')
     df = pd.merge(df, status, on='ts_code')
     df = df[~df['name'].str.contains('ST')]
     
-    # 2. 选取动量最强的前 150 只股票作为候选池
+    # 2. 动量最强 150 只候选
     candidates = df.sort_values(by='momentum', ascending=False).head(150).copy()
     candidate_codes = candidates['ts_code'].tolist()
     
-    # 3. 注入 PRP 因子
+    # 3. 注入 PRP 因子 (调用全新升级的健壮接口)
     prp_series = get_prp_factor_fast(candidate_codes, trade_date)
     candidates['prp'] = candidates['ts_code'].map(prp_series)
     
-    # ================= 核心修复：优雅降级 =================
-    # 如果因为 Tushare 接口限制拉取不到数据，PRP 将为 NaN。
-    # 此时强制填充为 0，防止 150 只候选股被 dropna 误杀清空。
-    candidates['prp'] = candidates['prp'].fillna(0)
-    # ======================================================
+    # ================= 恢复严格风控 =================
+    # 彻底丢弃那些上市不足 12 个月，或因极端异常拉不到数据的股票
+    candidates = candidates.dropna(subset=['prp'])
+    # ===============================================
     
-    # 4. 核心风控：规避高 PRP（剔除 PRP 排名前 30% 的高拥挤度股票）
+    # 4. 剔除 PRP 排名前 30% 的高拥挤度股票
     if not candidates.empty:
         prp_threshold = candidates['prp'].quantile(0.70)
-        # 即使 PRP 全部被填充为 0，quantile 也会返回 0，这行代码会安全地保留所有股票
         safe_pool = candidates[candidates['prp'] <= prp_threshold]
     else:
         safe_pool = candidates
