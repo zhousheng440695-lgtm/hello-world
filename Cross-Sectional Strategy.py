@@ -108,11 +108,17 @@ def select_stocks(trade_date):
     # 3. 注入 PRP 因子
     prp_series = get_prp_factor_fast(candidate_codes, trade_date)
     candidates['prp'] = candidates['ts_code'].map(prp_series)
-    candidates = candidates.dropna(subset=['prp'])
+    
+    # ================= 核心修复：优雅降级 =================
+    # 如果因为 Tushare 接口限制拉取不到数据，PRP 将为 NaN。
+    # 此时强制填充为 0，防止 150 只候选股被 dropna 误杀清空。
+    candidates['prp'] = candidates['prp'].fillna(0)
+    # ======================================================
     
     # 4. 核心风控：规避高 PRP（剔除 PRP 排名前 30% 的高拥挤度股票）
     if not candidates.empty:
         prp_threshold = candidates['prp'].quantile(0.70)
+        # 即使 PRP 全部被填充为 0，quantile 也会返回 0，这行代码会安全地保留所有股票
         safe_pool = candidates[candidates['prp'] <= prp_threshold]
     else:
         safe_pool = candidates
