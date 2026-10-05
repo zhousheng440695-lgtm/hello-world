@@ -13,13 +13,15 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-st.title("📈 基本面量化策略监控塔")
-st.markdown("基于 `Tushare` 数据源的核心财务因子轮动策略 (高 ROE + 高股息)")
+st.title("📈 量化策略监控塔")
+# ========== 核心修改 1：更新页面副标题 ==========
+st.markdown("基于 `Tushare` 数据源的截面轮动策略 **(季度动量 + PRP防反转)**")
 
 # ==========================================
 # 2. 数据读取与解析
 # ==========================================
-@st.cache_data
+# ========== 核心修改 2：加入 ttl=0 强制每次刷新都读取最新 JSON，防止缓存卡死 ==========
+@st.cache_data(ttl=0)
 def load_data(file_path="data/backtest_result.json"):
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -38,7 +40,6 @@ chart_data = data['chart_data']
 st.markdown("### 📊 核心绩效指标")
 col1, col2, col3, col4 = st.columns(4)
 
-# 使用带颜色的 delta 标识正负收益
 def format_color(val):
     return "normal" if float(val) >= 0 else "inverse"
 
@@ -51,7 +52,6 @@ col3.metric("最大回撤", f"{metrics['max_drawdown']}%",
 col4.metric("夏普比率", f"{metrics['sharpe_ratio']}", 
             delta=f"{metrics['sharpe_ratio']}", delta_color=format_color(metrics['sharpe_ratio']))
 
-# 将 JSON 图表数据转为 Pandas DataFrame 以便 Plotly 渲染
 df = pd.DataFrame({
     'Date': pd.to_datetime(chart_data['dates']),
     'Strategy': chart_data['strategy'],
@@ -66,16 +66,15 @@ df.set_index('Date', inplace=True)
 st.markdown("### 📈 累计净值走势 (Strategy vs Benchmark)")
 
 fig_nv = go.Figure()
-# 策略红线
+# ========== 核心修改 3：更新图例名称 ==========
 fig_nv.add_trace(go.Scatter(
     x=df.index, y=df['Strategy'], 
-    name='策略净值', 
+    name='策略净值 (动量+低PRP)', 
     line=dict(color='#ff4b4b', width=2)
 ))
-# 基准蓝线 (虚线)
 fig_nv.add_trace(go.Scatter(
     x=df.index, y=df['Benchmark'], 
-    name='沪深300基准', 
+    name='深证成指基准', 
     line=dict(color='#3b82f6', width=2, dash='dot')
 ))
 
@@ -93,7 +92,6 @@ st.plotly_chart(fig_nv, use_container_width=True)
 st.markdown("### 📉 动态最大回撤 (Drawdown)")
 
 fig_dd = go.Figure()
-# 回撤面积图
 fig_dd.add_trace(go.Scatter(
     x=df.index, y=df['Drawdown'],
     name='回撤幅度 (%)',
