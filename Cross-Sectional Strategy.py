@@ -181,17 +181,17 @@ def calculate_metrics(daily_returns):
 def plot_and_report(daily_returns):
     metrics, cum_returns = calculate_metrics(daily_returns)
     
-    # 强制对齐和去重的沪深300基准
-    hs300 = pro.index_daily(ts_code='000300.SH',
-                            start_date=daily_returns.index[0].strftime('%Y%m%d'),
-                            end_date=daily_returns.index[-1].strftime('%Y%m%d'))
-    hs300.set_index('trade_date', inplace=True)
-    hs300.index = pd.to_datetime(hs300.index)
-    hs300 = hs300.sort_index()
-    hs300 = hs300[~hs300.index.duplicated(keep='first')]
+    # ================= 强制对齐和去重的深证成指基准 (399001.SZ) =================
+    szcz = pro.index_daily(ts_code='399001.SZ',
+                           start_date=daily_returns.index[0].strftime('%Y%m%d'),
+                           end_date=daily_returns.index[-1].strftime('%Y%m%d'))
+    szcz.set_index('trade_date', inplace=True)
+    szcz.index = pd.to_datetime(szcz.index)
+    szcz = szcz.sort_index()
+    szcz = szcz[~szcz.index.duplicated(keep='first')]
     
-    hs300_returns = hs300['close'].pct_change().fillna(0)
-    hs300_cum = (1 + hs300_returns).cumprod()
+    szcz_returns = szcz['close'].pct_change().fillna(0)
+    szcz_cum = (1 + szcz_returns).cumprod()
 
     print("\n" + "=" * 40)
     print("      量化策略回测报告")
@@ -204,10 +204,10 @@ def plot_and_report(daily_returns):
     print(f"夏普比率:     {metrics['Sharpe Ratio']:.2f}")
     print("=" * 40)
 
-    # 绘图输出
+    # ================= 绘图输出 (图例同步修改为 SZSE Component) =================
     plt.figure(figsize=(12, 6))
     plt.plot(cum_returns.index, cum_returns, label='Strategy (Momentum + Low PRP)', color='red')
-    plt.plot(hs300_cum.index, hs300_cum, label='HS300 Benchmark', color='blue', alpha=0.7)
+    plt.plot(szcz_cum.index, szcz_cum, label='SZSE Component Benchmark', color='blue', alpha=0.7)
     plt.title('Strategy Performance vs Benchmark')
     plt.xlabel('Date')
     plt.ylabel('Cumulative Net Value')
@@ -216,10 +216,10 @@ def plot_and_report(daily_returns):
     plt.savefig("data/backtest_plot.png", dpi=150, bbox_inches='tight')
     plt.close()
 
-    # JSON 前端大屏输出
+    # ================= JSON 前端大屏输出 =================
     aligned_data = pd.DataFrame({
         'strategy': cum_returns,
-        'benchmark': hs300_cum
+        'benchmark': szcz_cum
     }).ffill().dropna()
 
     running_max = aligned_data['strategy'].cummax()
