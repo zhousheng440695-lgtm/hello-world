@@ -107,3 +107,20 @@ fig_dd.update_layout(
     yaxis=dict(title='回撤百分比 (%)')
 )
 st.plotly_chart(fig_dd, use_container_width=True)
+# ==========================================
+# 6. 最新调仓股票池展示
+# ==========================================
+st.markdown("### 🛒 当前季度实盘持仓清单")
+
+latest_holdings = data.get('latest_holdings', [])
+if latest_holdings:
+    # 将 Tushare 代码格式化，并附带雪球/东方财富的快捷搜索链接
+    cols = st.columns(5)
+    for idx, ts_code in enumerate(latest_holdings):
+        symbol = ts_code.split('.')[0]
+        # 根据后缀判断是 SH 还是 SZ
+        market = "SH" if "SH" in ts_code else "SZ"
+        with cols[idx % 5]:
+            st.info(f"**{ts_code}**\n\n[查看行情](https://xueqiu.com/S/{market}{symbol})")
+else:
+    st.warning("暂无最新持仓数据，请等待回测脚本运行完毕。")
