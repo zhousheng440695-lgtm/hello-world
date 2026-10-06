@@ -178,98 +178,6 @@ def select_stocks(trade_date):
     print(f"    -> 全市场: {len(df)} | 剔除羊群留存: {len(rational_pool)} | SUE+PRP风控后最终入选: {len(selected)}")
     
     return selected['ts_code'].tolist()
-    def get_latest_report_period(trade_date):
-    """动态匹配当前调仓日能获取到的最新财报期"""
-    year = int(trade_date[:4])
-    month = int(trade_date[4:6])
-    if month == 1:   return f"{year-1}0930"  # 1月调仓，用三季报
-    elif month == 4: return f"{year-1}1231"  # 4月调仓，用年报
-    elif month == 7: return f"{year}0331"    # 7月调仓，用一季报
-    elif month == 10:return f"{year}0630"    # 10月调仓，用半年报
-
-def select_stocks(trade_date):
-    """
-    终极版选股逻辑：私有信息互补 (SUE) + 规避羊群踩踏 (排除极高动量) + 规避散户反转 (排除高PRP)
-    """
-    print(f"正在计算 {trade_date} 的选股名单 (私有信息互补 SUE + 羊群/PRP 风控)...")
-    
-    # ================= 1. 计算 6 个月截面动量 =================
-    cal = pro.trade_cal(exchange='SSE', start_date='20100101', end_date=trade_date, is_open='1')
-    past_date = cal.iloc[-MOMENTUM_WINDOW - 1]['cal_date'] 
-    
-    df_curr = pro.daily(trade_date=trade_date, fields='ts_code,close')
-    time.sleep(0.3)
-    df_past = pro.daily(trade_date=past_date, fields='ts_code,close')
-    time.sleep(0.3)
-    
-    df_past.rename(columns={'close': 'past_close'}, inplace=True)
-    df = pd.merge(df_curr, df_past, on='ts_code')
-    df['momentum'] = (df['close'] / df['past_close']) - 1
-    
-    # 过滤停牌和 ST 股
-    status = pro.bak_basic(trade_date=trade_date, fields='ts_code,name,list_status')
-    if status.empty:
-        status = pro.stock_basic(exchange='', list_status='L', fields='ts_code,name')
-    df = pd.merge(df, status, on='ts_code')
-    df = df[~df['name'].str.contains('ST')]
-    
-    # ================= 2. 剥离羊群效应 (Herd Exclusion) =================
-    # 论文揭示：累积涨幅过大代表私有信息瓦解，进入羊群踩踏高危期。
-    # 动作：直接腰斩剔除全市场动量排名前 20% 的妖股和暴涨股
-    herd_threshold = df['momentum'].quantile(0.80)
-    rational_pool = df[df['momentum'] <= herd_threshold].copy()
-    
-    # ================= 3. 寻找私有信息互补锚点 (SUE 代理) =================
-    # 在非暴涨池中，寻找流动性最好的前 500 只股票进行基本面挖掘，防 API 超时
-    rational_pool = rational_pool.head(500)
-    candidate_codes = rational_pool['ts_code'].tolist()
-    
-    report_period = get_latest_report_period(trade_date)
-    fina_list = []
-    # 分块拉取单季度净利润同比 (q_nproyoy) 作为未预期盈余 (SUE) 的极速替代指标
-    for i in range(0, len(candidate_codes), 50):
-        chunk = ",".join(candidate_codes[i:i+50])
-        try:
-            fina = pro.fina_indicator(ts_code=chunk, period=report_period, fields='ts_code,q_nproyoy')
-            fina_list.append(fina)
-        except Exception:
-            pass
-        time.sleep(0.3)
-        
-    if fina_list:
-        fina_df = pd.concat(fina_list, ignore_index=True).drop_duplicates(subset=['ts_code'])
-        # 筛选出基本面强劲（SUE > 20%）的公司，这就是理性抱团的起点
-        fina_df = fina_df[fina_df['q_nproyoy'] > 20]
-        rational_pool = pd.merge(rational_pool, fina_df, on='ts_code')
-    else:
-        rational_pool['q_nproyoy'] = 0
-
-    # 按照基本面超预期程度排序，选出最具私有信息互补潜力的 50 只候选股
-    top_sue_candidates = rational_pool.sort_values(by='q_nproyoy', ascending=False).head(50)
-    final_candidate_codes = top_sue_candidates['ts_code'].tolist()
-    
-    # ================= 4. 注入 PRP 反转风控 =================
-    if not final_candidate_codes:
-        print("    -> 警告：未能找到足够的基本面支撑股票，退化为动量安全池")
-        final_candidate_codes = rational_pool.head(50)['ts_code'].tolist()
-        
-    prp_series = get_prp_factor_fast(final_candidate_codes, trade_date)
-    top_sue_candidates['prp'] = top_sue_candidates['ts_code'].map(prp_series)
-    top_sue_candidates = top_sue_candidates.dropna(subset=['prp'])
-    
-    # 剔除 PRP 排名前 30% 的散户高预期拥挤股
-    if not top_sue_candidates.empty:
-        prp_threshold = top_sue_candidates['prp'].quantile(0.70)
-        safe_pool = top_sue_candidates[top_sue_candidates['prp'] <= prp_threshold]
-    else:
-        safe_pool = top_sue_candidates
-        
-    # ================= 5. 优中选优 =================
-    # 最终在低羊群风险、高基本面支撑、低散户拥挤的安全池中，买入盈利增速最快的前 10 只
-    selected = safe_pool.sort_values(by='q_nproyoy', ascending=False).head(PORTFOLIO_SIZE)
-    print(f"    -> 全市场: {len(df)} | 剔除羊群留存: {len(rational_pool)} | SUE+PRP风控后最终入选: {len(selected)}")
-    
-    return selected['ts_code'].tolist()
 
 # ==========================================
 # 2. 收益计算与评估模块
@@ -343,7 +251,7 @@ def plot_and_report(daily_returns):
 
     print("\n" + "=" * 40)
     print("      量化策略回测报告")
-    print("      (季度动量 + PRP防反转)")
+    print("      (基本面SUE + 季度动量防踩踏 + PRP防反转)")
     print("=" * 40)
     print(f"测试区间: {daily_returns.index[0].strftime('%Y-%m-%d')} 至 {daily_returns.index[-1].strftime('%Y-%m-%d')}")
     print(f"累计收益率:   {metrics['Total Return'] * 100:.2f}%")
@@ -354,7 +262,7 @@ def plot_and_report(daily_returns):
 
     # ================= 绘图输出 (图例同步修改为 SZSE Component) =================
     plt.figure(figsize=(12, 6))
-    plt.plot(cum_returns.index, cum_returns, label='Strategy (Momentum + Low PRP)', color='red')
+    plt.plot(cum_returns.index, cum_returns, label='Strategy (SUE + Momentum Control + Low PRP)', color='red')
     plt.plot(szcz_cum.index, szcz_cum, label='SZSE Component Benchmark', color='blue', alpha=0.7)
     plt.title('Strategy Performance vs Benchmark')
     plt.xlabel('Date')
