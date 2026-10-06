@@ -122,19 +122,16 @@ def select_stocks(trade_date):
     df = df[~df['name'].str.contains('ST')]
     
     # ================= 2. 剥离羊群效应 (Herd Exclusion) =================
-    # 论文揭示：累积涨幅过大代表私有信息瓦解，进入羊群踩踏高危期。
-    # 动作：直接腰斩剔除全市场动量排名前 20% 的妖股和暴涨股
     herd_threshold = df['momentum'].quantile(0.80)
     rational_pool = df[df['momentum'] <= herd_threshold].copy()
     
     # ================= 3. 寻找私有信息互补锚点 (SUE 代理) =================
-    # 在非暴涨池中，寻找流动性最好的前 500 只股票进行基本面挖掘，防 API 超时
     rational_pool = rational_pool.head(500)
     candidate_codes = rational_pool['ts_code'].tolist()
     
     report_period = get_latest_report_period(trade_date)
     fina_list = []
-    # 分块拉取单季度净利润同比 (q_nproyoy) 作为未预期盈余 (SUE) 的极速替代指标
+    
     for i in range(0, len(candidate_codes), 50):
         chunk = ",".join(candidate_codes[i:i+50])
         try:
@@ -145,10 +142,18 @@ def select_stocks(trade_date):
         time.sleep(0.3)
         
     if fina_list:
-        fina_df = pd.concat(fina_list, ignore_index=True).drop_duplicates(subset=['ts_code'])
-        # 筛选出基本面强劲（SUE > 20%）的公司，这就是理性抱团的起点
-        fina_df = fina_df[fina_df['q_nproyoy'] > 20]
-        rational_pool = pd.merge(rational_pool, fina_df, on='ts_code')
+        fina_df = pd.concat(fina_list, ignore_index=True)
+        # ================= 核心防御机制：列名检查与空值填充 =================
+        if 'q_nproyoy' in fina_df.columns and not fina_df.empty:
+            fina_df = fina_df.drop_duplicates(subset=['ts_code'])
+            # 强制转换为数值类型，无法转换的变为 NaN，随后填充为 0
+            fina_df['q_nproyoy'] = pd.to_numeric(fina_df['q_nproyoy'], errors='coerce').fillna(0)
+            
+            # 筛选出基本面强劲（SUE > 20%）的公司，这是理性抱团的起点
+            fina_df = fina_df[fina_df['q_nproyoy'] > 20]
+            rational_pool = pd.merge(rational_pool, fina_df, on='ts_code')
+        else:
+            rational_pool['q_nproyoy'] = 0
     else:
         rational_pool['q_nproyoy'] = 0
 
@@ -163,9 +168,10 @@ def select_stocks(trade_date):
         
     prp_series = get_prp_factor_fast(final_candidate_codes, trade_date)
     top_sue_candidates['prp'] = top_sue_candidates['ts_code'].map(prp_series)
-    top_sue_candidates = top_sue_candidates.dropna(subset=['prp'])
     
-    # 剔除 PRP 排名前 30% 的散户高预期拥挤股
+    # 填充 PRP 空值为 0，避免极端情况下的数据丢失
+    top_sue_candidates['prp'] = top_sue_candidates['prp'].fillna(0)
+    
     if not top_sue_candidates.empty:
         prp_threshold = top_sue_candidates['prp'].quantile(0.70)
         safe_pool = top_sue_candidates[top_sue_candidates['prp'] <= prp_threshold]
@@ -173,12 +179,10 @@ def select_stocks(trade_date):
         safe_pool = top_sue_candidates
         
     # ================= 5. 优中选优 =================
-    # 最终在低羊群风险、高基本面支撑、低散户拥挤的安全池中，买入盈利增速最快的前 10 只
     selected = safe_pool.sort_values(by='q_nproyoy', ascending=False).head(PORTFOLIO_SIZE)
     print(f"    -> 全市场: {len(df)} | 剔除羊群留存: {len(rational_pool)} | SUE+PRP风控后最终入选: {len(selected)}")
     
     return selected['ts_code'].tolist()
-
 # ==========================================
 # 2. 收益计算与评估模块
 # ==========================================
