@@ -189,12 +189,15 @@ def select_stocks(trade_date):
 def backtest():
     rebalance_dates = get_quarterly_rebalance_dates(START_YEAR, END_YEAR)
     portfolio_daily_returns = pd.Series(dtype=float)
+    latest_symbols = [] # 新增：用于存储最新一期的持仓
     
     for i in range(len(rebalance_dates) - 1):
         start_date = rebalance_dates[i]
         end_date = rebalance_dates[i + 1]
         
         symbols = select_stocks(start_date)
+        latest_symbols = symbols # 每次循环覆盖，最后留下的就是最新持仓
+        # ... [中间的收益计算代码保持不变] ...
         print(f"    -> 最终持仓：{symbols}")
         
         prices = pd.DataFrame()
@@ -218,7 +221,7 @@ def backtest():
     portfolio_daily_returns.sort_index(inplace=True)
     # 去除首尾重叠的调仓日
     portfolio_daily_returns = portfolio_daily_returns[~portfolio_daily_returns.index.duplicated(keep='first')]
-    return portfolio_daily_returns
+    return portfolio_daily_returns, latest_symbols # 新增：返回最新持仓
 
 def calculate_metrics(daily_returns):
     cum_returns = (1 + daily_returns).cumprod()
@@ -238,7 +241,7 @@ def calculate_metrics(daily_returns):
         "Sharpe Ratio": sharpe_ratio
     }, cum_returns
 
-def plot_and_report(daily_returns):
+def plot_and_report(daily_returns, latest_symbols):
     metrics, cum_returns = calculate_metrics(daily_returns)
     
     # ================= 强制对齐和去重的深证成指基准 (399001.SZ) =================
@@ -299,11 +302,12 @@ def plot_and_report(daily_returns):
             "drawdown": drawdown.round(2).tolist()
         }
     }
-
+        "latest_holdings": latest_symbols  # <--- 新增这一行
+    }
     with open("data/backtest_result.json", 'w', encoding='utf-8') as f:
         json.dump(output, f, ensure_ascii=False)
 
 if __name__ == '__main__':
     print("初始化回测引擎...")
-    strategy_returns = backtest()
-    plot_and_report(strategy_returns)
+    strategy_returns, latest_symbols = backtest() # 接收两个返回值
+    plot_and_report(strategy_returns, latest_symbols) # 传入两个参数
