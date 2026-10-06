@@ -177,7 +177,8 @@ def select_stocks(trade_date):
     selected = safe_pool.sort_values(by='q_nproyoy', ascending=False).head(PORTFOLIO_SIZE)
     print(f"    -> 全市场: {len(df)} | 剔除羊群留存: {len(rational_pool)} | SUE+PRP风控后最终入选: {len(selected)}")
     
-    return selected['ts_code'].tolist()def get_latest_report_period(trade_date):
+    return selected['ts_code'].tolist()
+    def get_latest_report_period(trade_date):
     """动态匹配当前调仓日能获取到的最新财报期"""
     year = int(trade_date[:4])
     month = int(trade_date[4:6])
