@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import time
 import os
 import json
-
+import datetime
 # ========================== 环境与接口初始化 ==========================
 plt.switch_backend('Agg')
 
@@ -21,7 +21,7 @@ os.makedirs("data", exist_ok=True)
 # 0. 回测参数设置
 # ==========================================
 START_YEAR = 2020
-END_YEAR = 2025
+END_YEAR = 2027
 PORTFOLIO_SIZE = 10  # 每季度选入的股票数量
 MOMENTUM_WINDOW = 120  # 动量计算窗口（约 6 个月 / 120 个交易日）
 
@@ -189,16 +189,20 @@ def select_stocks(trade_date):
 def backtest():
     rebalance_dates = get_quarterly_rebalance_dates(START_YEAR, END_YEAR)
     portfolio_daily_returns = pd.Series(dtype=float)
-    latest_symbols = [] # 新增：用于存储最新一期的持仓
     
-    for i in range(len(rebalance_dates) - 1):
-        start_date = rebalance_dates[i]
-        end_date = rebalance_dates[i + 1]
+    # 获取今天的时间字符串 (例如 '20261007')
+    today_str = datetime.datetime.now().strftime('%Y%m%d')
+    
+    # 核心修改：只保留过去和今天的调仓日，剔除还没到的未来调仓日
+    valid_rebalance_dates = [d for d in rebalance_dates if d <= today_str]
+    
+    # 历史区间的净值计算 (不含最后一个还没有走完的季度)
+    for i in range(len(valid_rebalance_dates) - 1):
+        start_date = valid_rebalance_dates[i]
+        end_date = valid_rebalance_dates[i + 1]
         
         symbols = select_stocks(start_date)
-        latest_symbols = symbols # 每次循环覆盖，最后留下的就是最新持仓
-        # ... [中间的收益计算代码保持不变] ...
-        print(f"    -> 最终持仓：{symbols}")
+        print(f"    -> {start_date} 历史持仓：{symbols}")
         
         prices = pd.DataFrame()
         for ts_code in symbols:
@@ -208,7 +212,7 @@ def backtest():
                     df = df.sort_values('trade_date')
                     df.set_index('trade_date', inplace=True)
                     prices[ts_code] = df['close']
-            except Exception as e:
+            except Exception:
                 pass
             time.sleep(0.3)
             
@@ -219,9 +223,16 @@ def backtest():
         
     portfolio_daily_returns.index = pd.to_datetime(portfolio_daily_returns.index)
     portfolio_daily_returns.sort_index(inplace=True)
-    # 去除首尾重叠的调仓日
     portfolio_daily_returns = portfolio_daily_returns[~portfolio_daily_returns.index.duplicated(keep='first')]
-    return portfolio_daily_returns, latest_symbols # 新增：返回最新持仓
+    
+    # ================= 实盘指导输出 =================
+    # 独立计算最新一个调仓日的选股结果，作为当下的实盘持仓
+    latest_rebalance_date = valid_rebalance_dates[-1]
+    print(f"\n[实盘触发] 正在获取最新季度 ({latest_rebalance_date}) 的持仓指导...")
+    latest_symbols = select_stocks(latest_rebalance_date)
+    print(f"    -> 最新持仓：{latest_symbols}")
+    
+    return portfolio_daily_returns, latest_symbols
 
 def calculate_metrics(daily_returns):
     cum_returns = (1 + daily_returns).cumprod()
