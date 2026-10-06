@@ -267,7 +267,7 @@ def plot_and_report(daily_returns, latest_symbols):
     print(f"夏普比率:     {metrics['Sharpe Ratio']:.2f}")
     print("=" * 40)
 
-    # ================= 绘图输出 (图例同步修改为 SZSE Component) =================
+    # ================= 绘图输出 =================
     plt.figure(figsize=(12, 6))
     plt.plot(cum_returns.index, cum_returns, label='Strategy (SUE + Momentum Control + Low PRP)', color='red')
     plt.plot(szcz_cum.index, szcz_cum, label='SZSE Component Benchmark', color='blue', alpha=0.7)
@@ -300,14 +300,14 @@ def plot_and_report(daily_returns, latest_symbols):
             "strategy": aligned_data['strategy'].round(4).tolist(),
             "benchmark": aligned_data['benchmark'].round(4).tolist(),
             "drawdown": drawdown.round(2).tolist()
-        }
+        },
+        "latest_holdings": latest_symbols
     }
-        "latest_holdings": latest_symbols  # <--- 新增这一行
-    }
+
     with open("data/backtest_result.json", 'w', encoding='utf-8') as f:
         json.dump(output, f, ensure_ascii=False)
 
 if __name__ == '__main__':
     print("初始化回测引擎...")
-    strategy_returns, latest_symbols = backtest() # 接收两个返回值
-    plot_and_report(strategy_returns, latest_symbols) # 传入两个参数
+    strategy_returns, latest_symbols = backtest()
+    plot_and_report(strategy_returns, latest_symbols)
