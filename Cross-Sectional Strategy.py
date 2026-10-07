@@ -20,7 +20,7 @@ os.makedirs("data", exist_ok=True)
 # ==========================================
 # 0. 回测参数设置
 # ==========================================
-START_YEAR = 2025
+START_YEAR = 2022
 END_YEAR = 2027
 PORTFOLIO_SIZE = 10  # 每季度选入的股票数量
 MOMENTUM_WINDOW = 120  # 动量计算窗口（约 6 个月 / 120 个交易日）
@@ -122,8 +122,8 @@ def select_stocks(trade_date):
     df = df[~df['name'].str.contains('ST')]
     
     # ================= 2. 剥离羊群效应 (Herd Exclusion) =================
-    herd_threshold = df['momentum'].quantile(0.80)
-    rational_pool = df[df['momentum'] <= herd_threshold].copy()
+    herd_threshold = df['momentum'].quantile(0.70)
+    rational_pool = df[df['momentum'] >= herd_threshold].copy()
     
     # ================= 3. 寻找私有信息互补锚点 (SUE 代理) =================
     rational_pool = rational_pool.head(500)
