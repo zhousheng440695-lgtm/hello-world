@@ -111,8 +111,8 @@ def select_stocks(trade_date):
     df = df[~df['name'].str.contains('ST')]
     
     # ================= 2. 剥离羊群效应 (Herd Exclusion) =================
-    herd_threshold = df['momentum'].quantile(0.80)
-    rational_pool = df[df['momentum'] <= herd_threshold].copy()
+    herd_threshold = df['momentum'].quantile(0.70)
+    rational_pool = df[df['momentum'] >= herd_threshold].copy()
     
     # ================= 3. 方案C：寻找营收高增锚点 (q_sales_yoy) =================
     rational_pool = rational_pool.head(500)
